@@ -76,7 +76,7 @@ export function ResourceTable<T extends { id: number }>({ endpoint, columns, fie
       else if (f.type === "checkbox") payload[f.name] = raw === "on";
       else payload[f.name] = raw;
     });
-    save.mutate(payload);
+    save.mutate(payload as Partial<T>);
   };
 
   return (
