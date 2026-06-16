@@ -12,6 +12,14 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
+import { Route as AppStudentGroupsRouteImport } from './routes/_app.student-groups'
+import { Route as AppSemestersRouteImport } from './routes/_app.semesters'
+import { Route as AppRoomsRouteImport } from './routes/_app.rooms'
+import { Route as AppProgrammesRouteImport } from './routes/_app.programmes'
+import { Route as AppLecturersRouteImport } from './routes/_app.lecturers'
+import { Route as AppFacultiesRouteImport } from './routes/_app.faculties'
+import { Route as AppDepartmentsRouteImport } from './routes/_app.departments'
+import { Route as AppCoursesRouteImport } from './routes/_app.courses'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -27,27 +35,123 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppStudentGroupsRoute = AppStudentGroupsRouteImport.update({
+  id: '/student-groups',
+  path: '/student-groups',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSemestersRoute = AppSemestersRouteImport.update({
+  id: '/semesters',
+  path: '/semesters',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRoomsRoute = AppRoomsRouteImport.update({
+  id: '/rooms',
+  path: '/rooms',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppProgrammesRoute = AppProgrammesRouteImport.update({
+  id: '/programmes',
+  path: '/programmes',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppLecturersRoute = AppLecturersRouteImport.update({
+  id: '/lecturers',
+  path: '/lecturers',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFacultiesRoute = AppFacultiesRouteImport.update({
+  id: '/faculties',
+  path: '/faculties',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDepartmentsRoute = AppDepartmentsRouteImport.update({
+  id: '/departments',
+  path: '/departments',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCoursesRoute = AppCoursesRouteImport.update({
+  id: '/courses',
+  path: '/courses',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
+  '/courses': typeof AppCoursesRoute
+  '/departments': typeof AppDepartmentsRoute
+  '/faculties': typeof AppFacultiesRoute
+  '/lecturers': typeof AppLecturersRoute
+  '/programmes': typeof AppProgrammesRoute
+  '/rooms': typeof AppRoomsRoute
+  '/semesters': typeof AppSemestersRoute
+  '/student-groups': typeof AppStudentGroupsRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
+  '/courses': typeof AppCoursesRoute
+  '/departments': typeof AppDepartmentsRoute
+  '/faculties': typeof AppFacultiesRoute
+  '/lecturers': typeof AppLecturersRoute
+  '/programmes': typeof AppProgrammesRoute
+  '/rooms': typeof AppRoomsRoute
+  '/semesters': typeof AppSemestersRoute
+  '/student-groups': typeof AppStudentGroupsRoute
   '/': typeof AppIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
+  '/_app/courses': typeof AppCoursesRoute
+  '/_app/departments': typeof AppDepartmentsRoute
+  '/_app/faculties': typeof AppFacultiesRoute
+  '/_app/lecturers': typeof AppLecturersRoute
+  '/_app/programmes': typeof AppProgrammesRoute
+  '/_app/rooms': typeof AppRoomsRoute
+  '/_app/semesters': typeof AppSemestersRoute
+  '/_app/student-groups': typeof AppStudentGroupsRoute
   '/_app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/courses'
+    | '/departments'
+    | '/faculties'
+    | '/lecturers'
+    | '/programmes'
+    | '/rooms'
+    | '/semesters'
+    | '/student-groups'
   fileRoutesByTo: FileRoutesByTo
-  to: '/login' | '/'
-  id: '__root__' | '/_app' | '/login' | '/_app/'
+  to:
+    | '/login'
+    | '/courses'
+    | '/departments'
+    | '/faculties'
+    | '/lecturers'
+    | '/programmes'
+    | '/rooms'
+    | '/semesters'
+    | '/student-groups'
+    | '/'
+  id:
+    | '__root__'
+    | '/_app'
+    | '/login'
+    | '/_app/courses'
+    | '/_app/departments'
+    | '/_app/faculties'
+    | '/_app/lecturers'
+    | '/_app/programmes'
+    | '/_app/rooms'
+    | '/_app/semesters'
+    | '/_app/student-groups'
+    | '/_app/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -78,14 +182,86 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/student-groups': {
+      id: '/_app/student-groups'
+      path: '/student-groups'
+      fullPath: '/student-groups'
+      preLoaderRoute: typeof AppStudentGroupsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/semesters': {
+      id: '/_app/semesters'
+      path: '/semesters'
+      fullPath: '/semesters'
+      preLoaderRoute: typeof AppSemestersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/rooms': {
+      id: '/_app/rooms'
+      path: '/rooms'
+      fullPath: '/rooms'
+      preLoaderRoute: typeof AppRoomsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/programmes': {
+      id: '/_app/programmes'
+      path: '/programmes'
+      fullPath: '/programmes'
+      preLoaderRoute: typeof AppProgrammesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/lecturers': {
+      id: '/_app/lecturers'
+      path: '/lecturers'
+      fullPath: '/lecturers'
+      preLoaderRoute: typeof AppLecturersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/faculties': {
+      id: '/_app/faculties'
+      path: '/faculties'
+      fullPath: '/faculties'
+      preLoaderRoute: typeof AppFacultiesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/departments': {
+      id: '/_app/departments'
+      path: '/departments'
+      fullPath: '/departments'
+      preLoaderRoute: typeof AppDepartmentsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/courses': {
+      id: '/_app/courses'
+      path: '/courses'
+      fullPath: '/courses'
+      preLoaderRoute: typeof AppCoursesRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
 interface AppRouteChildren {
+  AppCoursesRoute: typeof AppCoursesRoute
+  AppDepartmentsRoute: typeof AppDepartmentsRoute
+  AppFacultiesRoute: typeof AppFacultiesRoute
+  AppLecturersRoute: typeof AppLecturersRoute
+  AppProgrammesRoute: typeof AppProgrammesRoute
+  AppRoomsRoute: typeof AppRoomsRoute
+  AppSemestersRoute: typeof AppSemestersRoute
+  AppStudentGroupsRoute: typeof AppStudentGroupsRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppCoursesRoute: AppCoursesRoute,
+  AppDepartmentsRoute: AppDepartmentsRoute,
+  AppFacultiesRoute: AppFacultiesRoute,
+  AppLecturersRoute: AppLecturersRoute,
+  AppProgrammesRoute: AppProgrammesRoute,
+  AppRoomsRoute: AppRoomsRoute,
+  AppSemestersRoute: AppSemestersRoute,
+  AppStudentGroupsRoute: AppStudentGroupsRoute,
   AppIndexRoute: AppIndexRoute,
 }
 
