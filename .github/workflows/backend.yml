@@ -1,0 +1,32 @@
+name: backend-ci
+on:
+  push:
+    paths: ["backend/**", ".github/workflows/backend.yml"]
+  pull_request:
+    paths: ["backend/**"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: unitime
+          POSTGRES_PASSWORD: unitime
+          POSTGRES_DB: unitime
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U unitime" --health-interval=5s
+          --health-timeout=5s --health-retries=10
+    env:
+      DATABASE_URL: postgres://unitime:unitime@localhost:5432/unitime
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: ci-secret
+      DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r backend/requirements.txt
+      - run: cd backend && python manage.py migrate
+      - run: cd backend && pytest -q
