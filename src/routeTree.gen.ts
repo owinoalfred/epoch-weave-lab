@@ -13,6 +13,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppStudentGroupsRouteImport } from './routes/_app.student-groups'
+import { Route as AppSettingsRouteImport } from './routes/_app.settings'
 import { Route as AppSemestersRouteImport } from './routes/_app.semesters'
 import { Route as AppRoomsRouteImport } from './routes/_app.rooms'
 import { Route as AppProgrammesRouteImport } from './routes/_app.programmes'
@@ -20,6 +21,10 @@ import { Route as AppLecturersRouteImport } from './routes/_app.lecturers'
 import { Route as AppFacultiesRouteImport } from './routes/_app.faculties'
 import { Route as AppDepartmentsRouteImport } from './routes/_app.departments'
 import { Route as AppCoursesRouteImport } from './routes/_app.courses'
+import { Route as AppAnalyticsRouteImport } from './routes/_app.analytics'
+import { Route as AppTimetablesIndexRouteImport } from './routes/_app.timetables.index'
+import { Route as AppTimetablesGenerateRouteImport } from './routes/_app.timetables.generate'
+import { Route as AppTimetablesIdRouteImport } from './routes/_app.timetables.$id'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -38,6 +43,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
 const AppStudentGroupsRoute = AppStudentGroupsRouteImport.update({
   id: '/student-groups',
   path: '/student-groups',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSemestersRoute = AppSemestersRouteImport.update({
@@ -75,10 +85,31 @@ const AppCoursesRoute = AppCoursesRouteImport.update({
   path: '/courses',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAnalyticsRoute = AppAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTimetablesIndexRoute = AppTimetablesIndexRouteImport.update({
+  id: '/timetables/',
+  path: '/timetables/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTimetablesGenerateRoute = AppTimetablesGenerateRouteImport.update({
+  id: '/timetables/generate',
+  path: '/timetables/generate',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTimetablesIdRoute = AppTimetablesIdRouteImport.update({
+  id: '/timetables/$id',
+  path: '/timetables/$id',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
+  '/analytics': typeof AppAnalyticsRoute
   '/courses': typeof AppCoursesRoute
   '/departments': typeof AppDepartmentsRoute
   '/faculties': typeof AppFacultiesRoute
@@ -86,10 +117,15 @@ export interface FileRoutesByFullPath {
   '/programmes': typeof AppProgrammesRoute
   '/rooms': typeof AppRoomsRoute
   '/semesters': typeof AppSemestersRoute
+  '/settings': typeof AppSettingsRoute
   '/student-groups': typeof AppStudentGroupsRoute
+  '/timetables/$id': typeof AppTimetablesIdRoute
+  '/timetables/generate': typeof AppTimetablesGenerateRoute
+  '/timetables/': typeof AppTimetablesIndexRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
+  '/analytics': typeof AppAnalyticsRoute
   '/courses': typeof AppCoursesRoute
   '/departments': typeof AppDepartmentsRoute
   '/faculties': typeof AppFacultiesRoute
@@ -97,13 +133,18 @@ export interface FileRoutesByTo {
   '/programmes': typeof AppProgrammesRoute
   '/rooms': typeof AppRoomsRoute
   '/semesters': typeof AppSemestersRoute
+  '/settings': typeof AppSettingsRoute
   '/student-groups': typeof AppStudentGroupsRoute
   '/': typeof AppIndexRoute
+  '/timetables/$id': typeof AppTimetablesIdRoute
+  '/timetables/generate': typeof AppTimetablesGenerateRoute
+  '/timetables': typeof AppTimetablesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
+  '/_app/analytics': typeof AppAnalyticsRoute
   '/_app/courses': typeof AppCoursesRoute
   '/_app/departments': typeof AppDepartmentsRoute
   '/_app/faculties': typeof AppFacultiesRoute
@@ -111,14 +152,19 @@ export interface FileRoutesById {
   '/_app/programmes': typeof AppProgrammesRoute
   '/_app/rooms': typeof AppRoomsRoute
   '/_app/semesters': typeof AppSemestersRoute
+  '/_app/settings': typeof AppSettingsRoute
   '/_app/student-groups': typeof AppStudentGroupsRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/timetables/$id': typeof AppTimetablesIdRoute
+  '/_app/timetables/generate': typeof AppTimetablesGenerateRoute
+  '/_app/timetables/': typeof AppTimetablesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/login'
+    | '/analytics'
     | '/courses'
     | '/departments'
     | '/faculties'
@@ -126,10 +172,15 @@ export interface FileRouteTypes {
     | '/programmes'
     | '/rooms'
     | '/semesters'
+    | '/settings'
     | '/student-groups'
+    | '/timetables/$id'
+    | '/timetables/generate'
+    | '/timetables/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
+    | '/analytics'
     | '/courses'
     | '/departments'
     | '/faculties'
@@ -137,12 +188,17 @@ export interface FileRouteTypes {
     | '/programmes'
     | '/rooms'
     | '/semesters'
+    | '/settings'
     | '/student-groups'
     | '/'
+    | '/timetables/$id'
+    | '/timetables/generate'
+    | '/timetables'
   id:
     | '__root__'
     | '/_app'
     | '/login'
+    | '/_app/analytics'
     | '/_app/courses'
     | '/_app/departments'
     | '/_app/faculties'
@@ -150,8 +206,12 @@ export interface FileRouteTypes {
     | '/_app/programmes'
     | '/_app/rooms'
     | '/_app/semesters'
+    | '/_app/settings'
     | '/_app/student-groups'
     | '/_app/'
+    | '/_app/timetables/$id'
+    | '/_app/timetables/generate'
+    | '/_app/timetables/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -187,6 +247,13 @@ declare module '@tanstack/react-router' {
       path: '/student-groups'
       fullPath: '/student-groups'
       preLoaderRoute: typeof AppStudentGroupsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/semesters': {
@@ -238,10 +305,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCoursesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/analytics': {
+      id: '/_app/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AppAnalyticsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/timetables/': {
+      id: '/_app/timetables/'
+      path: '/timetables'
+      fullPath: '/timetables/'
+      preLoaderRoute: typeof AppTimetablesIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/timetables/generate': {
+      id: '/_app/timetables/generate'
+      path: '/timetables/generate'
+      fullPath: '/timetables/generate'
+      preLoaderRoute: typeof AppTimetablesGenerateRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/timetables/$id': {
+      id: '/_app/timetables/$id'
+      path: '/timetables/$id'
+      fullPath: '/timetables/$id'
+      preLoaderRoute: typeof AppTimetablesIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
 interface AppRouteChildren {
+  AppAnalyticsRoute: typeof AppAnalyticsRoute
   AppCoursesRoute: typeof AppCoursesRoute
   AppDepartmentsRoute: typeof AppDepartmentsRoute
   AppFacultiesRoute: typeof AppFacultiesRoute
@@ -249,11 +345,16 @@ interface AppRouteChildren {
   AppProgrammesRoute: typeof AppProgrammesRoute
   AppRoomsRoute: typeof AppRoomsRoute
   AppSemestersRoute: typeof AppSemestersRoute
+  AppSettingsRoute: typeof AppSettingsRoute
   AppStudentGroupsRoute: typeof AppStudentGroupsRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppTimetablesIdRoute: typeof AppTimetablesIdRoute
+  AppTimetablesGenerateRoute: typeof AppTimetablesGenerateRoute
+  AppTimetablesIndexRoute: typeof AppTimetablesIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAnalyticsRoute: AppAnalyticsRoute,
   AppCoursesRoute: AppCoursesRoute,
   AppDepartmentsRoute: AppDepartmentsRoute,
   AppFacultiesRoute: AppFacultiesRoute,
@@ -261,8 +362,12 @@ const AppRouteChildren: AppRouteChildren = {
   AppProgrammesRoute: AppProgrammesRoute,
   AppRoomsRoute: AppRoomsRoute,
   AppSemestersRoute: AppSemestersRoute,
+  AppSettingsRoute: AppSettingsRoute,
   AppStudentGroupsRoute: AppStudentGroupsRoute,
   AppIndexRoute: AppIndexRoute,
+  AppTimetablesIdRoute: AppTimetablesIdRoute,
+  AppTimetablesGenerateRoute: AppTimetablesGenerateRoute,
+  AppTimetablesIndexRoute: AppTimetablesIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
