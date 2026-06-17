@@ -1,8 +1,21 @@
 import axios from "axios";
+import { mockAdapter } from "./mock/adapter";
 
-const baseURL = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8000/api";
+/**
+ * If VITE_API_URL is set we talk to the real Django backend; otherwise we
+ * run a full in-browser mock backend (see ./mock/) so the UI is usable in
+ * the Lovable preview without any server. To force-disable demo mode set
+ * VITE_API_URL to your Django URL (e.g. http://localhost:8000/api).
+ */
+const configuredUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+export const DEMO_MODE = !configuredUrl;
+const baseURL = configuredUrl || "http://demo.local/api";
 
-export const api = axios.create({ baseURL, withCredentials: false });
+export const api = axios.create({
+  baseURL,
+  withCredentials: false,
+  adapter: DEMO_MODE ? mockAdapter : undefined,
+});
 
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
@@ -15,7 +28,7 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (r) => r,
   async (error) => {
-    if (error.response?.status === 401 && typeof window !== "undefined") {
+    if (error.response?.status === 401 && typeof window !== "undefined" && !DEMO_MODE) {
       const refresh = localStorage.getItem("unitime_refresh");
       if (refresh && !error.config._retry) {
         try {

@@ -64,10 +64,11 @@ function LoginPage() {
           </Button>
         </form>
 
-        <div className="mt-6 rounded-lg border border-border/60 bg-card/40 p-3 text-xs text-muted-foreground">
-          <div className="font-medium text-foreground mb-1">Backend connection</div>
-          API endpoint: <code className="text-primary">{import.meta.env.VITE_API_URL ?? "http://localhost:8000/api"}</code>
-          <div className="mt-1">Set <code>VITE_API_URL</code> in your env to point at your Django backend.</div>
+        <div className="mt-6 rounded-lg border border-border/60 bg-card/40 p-3 text-xs text-muted-foreground space-y-1">
+          <div className="font-medium text-foreground">Demo accounts</div>
+          <div><code className="text-primary">admin / admin12345</code> — Super Admin</div>
+          <div><code className="text-primary">dean / password123</code> · <code className="text-primary">hod / password123</code> · <code className="text-primary">officer / password123</code></div>
+          <div className="pt-1 text-[10px]">Demo mode runs entirely in your browser. Set <code>VITE_API_URL</code> to connect the Django backend.</div>
         </div>
       </motion.div>
     </div>
