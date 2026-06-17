@@ -1,6 +1,5 @@
 from django.db import models
 
-
 class DayOfWeek(models.IntegerChoices):
     MONDAY = 0, "Monday"
     TUESDAY = 1, "Tuesday"
@@ -10,10 +9,9 @@ class DayOfWeek(models.IntegerChoices):
     SATURDAY = 5, "Saturday"
     SUNDAY = 6, "Sunday"
 
-
 class TimeSlot(models.Model):
     """Canonical teaching time slot (M-F + Saturday for PG)."""
-    name = models.CharField(max_length=32)  # Slot 1, Slot 2, ...
+    name = models.CharField(max_length=32) # Slot 1, Slot 2, ...
     start_time = models.TimeField()
     end_time = models.TimeField()
     order = models.PositiveSmallIntegerField(default=0)
@@ -25,33 +23,25 @@ class TimeSlot(models.Model):
 
     def __str__(self): return f"{self.name} {self.start_time}-{self.end_time}"
 
-
 class TimetableStatus(models.TextChoices):
     DRAFT = "DRAFT", "Draft"
     GENERATING = "GENERATING", "Generating"
-    READY = "READY", "Ready"
-    HOD_APPROVED = "HOD_APPROVED", "HOD Approved"
-    DEAN_APPROVED = "DEAN_APPROVED", "Dean Approved"
     PUBLISHED = "PUBLISHED", "Published"
-    ARCHIVED = "ARCHIVED", "Archived"
-
 
 class Timetable(models.Model):
     semester = models.ForeignKey("academics.Semester", on_delete=models.CASCADE, related_name="timetables")
     department = models.ForeignKey("academics.Department", null=True, blank=True,
-                                    on_delete=models.CASCADE, related_name="timetables")
+                                   on_delete=models.CASCADE, related_name="timetables")
     name = models.CharField(max_length=160)
     version = models.PositiveIntegerField(default=1)
     status = models.CharField(max_length=16, choices=TimetableStatus.choices, default=TimetableStatus.DRAFT)
+    
     optimization_score = models.FloatField(null=True, blank=True)
     hard_violations = models.PositiveIntegerField(default=0)
     soft_violations = models.PositiveIntegerField(default=0)
+    
     generated_by = models.ForeignKey("accounts.User", null=True, blank=True,
-                                      on_delete=models.SET_NULL, related_name="timetables_generated")
-    hod_approved_by = models.ForeignKey("accounts.User", null=True, blank=True,
-                                         on_delete=models.SET_NULL, related_name="hod_approvals")
-    dean_approved_by = models.ForeignKey("accounts.User", null=True, blank=True,
-                                          on_delete=models.SET_NULL, related_name="dean_approvals")
+                                     on_delete=models.SET_NULL, related_name="timetables_generated")
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -61,7 +51,6 @@ class Timetable(models.Model):
         indexes = [models.Index(fields=["semester", "status"])]
 
     def __str__(self): return f"{self.name} v{self.version} [{self.status}]"
-
 
 class TimetableEntry(models.Model):
     """A single scheduled session."""
@@ -83,7 +72,6 @@ class TimetableEntry(models.Model):
 
     def __str__(self):
         return f"{self.course.code} {self.get_day_display()} {self.time_slot}"
-
 
 class RoomBooking(models.Model):
     """Ad-hoc room booking outside the auto-generated timetable."""

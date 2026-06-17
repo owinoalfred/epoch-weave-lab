@@ -8,7 +8,6 @@ export interface AuthUser {
   email: string;
   first_name: string;
   last_name: string;
-  roles: string[];
 }
 
 interface AuthState {
@@ -17,6 +16,7 @@ interface AuthState {
   refresh: string | null;
   isAuthenticated: boolean;
   login: (username: string, password: string) => Promise<void>;
+  register: (data: { username: string; email: string; password: string; first_name: string; last_name: string }) => Promise<void>;
   logout: () => void;
   loadMe: () => Promise<void>;
 }
@@ -28,17 +28,27 @@ export const useAuth = create<AuthState>()(
       access: null,
       refresh: null,
       isAuthenticated: false,
+      
       async login(username, password) {
         const { data } = await api.post("/auth/login", { username, password });
         localStorage.setItem("unitime_access", data.access);
         localStorage.setItem("unitime_refresh", data.refresh);
         set({ access: data.access, refresh: data.refresh, user: data.user, isAuthenticated: true });
       },
+
+      async register(regData) {
+        // Call the registration endpoint
+        await api.post("/auth/register", regData);
+        // After successful registration, automatically log them in
+        await get().login(regData.username, regData.password);
+      },
+
       logout() {
         localStorage.removeItem("unitime_access");
         localStorage.removeItem("unitime_refresh");
         set({ user: null, access: null, refresh: null, isAuthenticated: false });
       },
+
       async loadMe() {
         try {
           const { data } = await api.get("/auth/me");
@@ -48,6 +58,14 @@ export const useAuth = create<AuthState>()(
         }
       },
     }),
-    { name: "unitime-auth", partialize: (s) => ({ user: s.user, access: s.access, refresh: s.refresh, isAuthenticated: s.isAuthenticated }) }
+    { 
+      name: "unitime-auth", 
+      partialize: (s) => ({ 
+        user: s.user, 
+        access: s.access, 
+        refresh: s.refresh, 
+        isAuthenticated: s.isAuthenticated 
+      }) 
+    }
   )
 );

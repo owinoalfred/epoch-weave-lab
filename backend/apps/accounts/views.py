@@ -1,30 +1,39 @@
 from django.contrib.auth import get_user_model
-from rest_framework import generics, permissions, status
+from rest_framework import generics, status, permissions
 from rest_framework.response import Response
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-from .serializers import RegisterSerializer, UserSerializer, UniTimeTokenSerializer
+from rest_framework.views import APIView
+from rest_framework_simplejwt.views import TokenObtainPairView
+
+from .serializers import (
+    UserSerializer,
+    RegisterSerializer,
+    UniTimeTokenSerializer,
+)
 
 User = get_user_model()
 
-
-class LoginView(TokenObtainPairView):
-    serializer_class = UniTimeTokenSerializer
-
-
 class RegisterView(generics.CreateAPIView):
+    """Register a new user."""
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
 
+class LoginView(TokenObtainPairView):
+    """Login and get JWT tokens."""
+    serializer_class = UniTimeTokenSerializer
 
-class MeView(generics.RetrieveAPIView):
-    serializer_class = UserSerializer
+class MeView(APIView):
+    """Get current user profile."""
+    permission_classes = [permissions.IsAuthenticated]
 
-    def get_object(self):
-        return self.request.user
+    def get(self, request):
+        serializer = UserSerializer(request.user)
+        return Response(serializer.data)
 
+# --- ADDED THIS BACK ---
+class LogoutView(APIView):
+    """Logout endpoint. (Frontend handles clearing the actual tokens)."""
+    permission_classes = [permissions.IsAuthenticated]
 
-class LogoutView(generics.GenericAPIView):
-    """Stateless JWT logout: client discards tokens. Optionally blacklist refresh."""
-    def post(self, request, *args, **kwargs):
-        return Response({"detail": "logged out"}, status=status.HTTP_200_OK)
+    def post(self, request):
+        return Response({"detail": "Successfully logged out."}, status=status.HTTP_200_OK)
