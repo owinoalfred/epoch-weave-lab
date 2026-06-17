@@ -32,7 +32,7 @@ function ok<T>(data: T, config: InternalAxiosRequestConfig, status = 200): Axios
   } as AxiosResponse<T>;
 }
 
-function err(status: number, body: any, config: InternalAxiosRequestConfig) {
+function err(status: number, body: any, config: InternalAxiosRequestConfig): never {
   const e: any = new Error(typeof body === "string" ? body : JSON.stringify(body));
   e.response = { status, data: body, headers: {}, config, statusText: "ERR" };
   e.config = config; e.isAxiosError = true;
