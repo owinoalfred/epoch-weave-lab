@@ -74,3 +74,12 @@ htmlcov/
 
 # Jupyter
 .ipynb_checkpoints/
+# Python
+**/__pycache__/
+*.pyc
+
+# Virtual environments
+**/.venv/
+**/venv/
+**/env/
+**/ENV/
