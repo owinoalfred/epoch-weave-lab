@@ -1,96 +1,82 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { Building2, GitBranch, GraduationCap, BookOpen, Users, DoorOpen, UsersRound, CalendarRange } from "lucide-react";
-import { api } from "@/lib/api";
-import { PageHeader } from "@/components/app/page-header";
-import { StatCard } from "@/components/app/stat-card";
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell } from "recharts";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { useAuth } from "@/lib/auth-store";
+import { Calendar, Users, Building2, LogOut } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Link } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_app/")({
-  component: Dashboard,
+  component: IndexComponent,
 });
 
-interface Stats {
-  faculties: number; departments: number; programmes: number; courses: number;
-  lecturers: number; rooms: number; student_groups: number;
-  timetables: number; published_timetables: number;
-}
+function IndexComponent() {
+  const { user, isAuthenticated, logout } = useAuth();
 
-function Dashboard() {
-  const { data, isLoading } = useQuery({
-    queryKey: ["dashboard"],
-    queryFn: async () => (await api.get<Stats>("/reports/dashboard")).data,
-  });
+  // 1. If not logged in, kick them to the login page
+  if (!isAuthenticated) {
+    return <Navigate to="/login" />;
+  }
 
-  const workload = useQuery({
-    queryKey: ["workloads"],
-    queryFn: async () => (await api.get("/reports/workloads")).data as any[],
-  });
-
-  const rooms = useQuery({
-    queryKey: ["room-util"],
-    queryFn: async () => (await api.get("/reports/room-utilization")).data as any[],
-  });
-
+  // 2. If logged in, show the Dashboard
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Dashboard"
-        description="Live operational view of your academic scheduling."
-      />
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Faculties" value={data?.faculties ?? "—"} icon={<Building2 className="size-4" />} delay={0} />
-        <StatCard label="Departments" value={data?.departments ?? "—"} icon={<GitBranch className="size-4" />} delay={0.04} />
-        <StatCard label="Programmes" value={data?.programmes ?? "—"} icon={<GraduationCap className="size-4" />} delay={0.08} />
-        <StatCard label="Courses" value={data?.courses ?? "—"} icon={<BookOpen className="size-4" />} delay={0.12} />
-        <StatCard label="Lecturers" value={data?.lecturers ?? "—"} icon={<Users className="size-4" />} delay={0.16} />
-        <StatCard label="Rooms" value={data?.rooms ?? "—"} icon={<DoorOpen className="size-4" />} delay={0.2} />
-        <StatCard label="Student Groups" value={data?.student_groups ?? "—"} icon={<UsersRound className="size-4" />} delay={0.24} />
-        <StatCard label="Timetables" value={`${data?.published_timetables ?? 0}/${data?.timetables ?? 0}`} hint="published / total" icon={<CalendarRange className="size-4" />} delay={0.28} />
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-4">
-        <div className="glass rounded-xl p-5">
-          <div className="flex items-baseline justify-between">
-            <h3 className="font-semibold">Lecturer Workload</h3>
-            <span className="text-xs text-muted-foreground">% utilization vs cap</span>
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      {/* Header */}
+      <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center">
+              <Calendar className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900 dark:text-white">UniTime</h1>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Welcome back, {user?.first_name || user?.username}
+              </p>
+            </div>
           </div>
-          <div className="h-72 mt-4">
-            <ResponsiveContainer>
-              <BarChart data={(workload.data ?? []).slice(0, 12)}>
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" />
-                <YAxis tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" />
-                <Tooltip contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }} />
-                <Bar dataKey="utilization" radius={[6, 6, 0, 0]}>
-                  {(workload.data ?? []).map((row, i) => (
-                    <Cell key={i} fill={row.overloaded ? "var(--destructive)" : "var(--primary)"} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+          <Button 
+            variant="outline" 
+            onClick={() => { logout(); window.location.href = "/login"; }}
+            className="text-gray-700 dark:text-gray-300"
+          >
+            <LogOut className="mr-2 h-4 w-4" />
+            Logout
+          </Button>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Dashboard</h2>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Timetables Card */}
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow">
+            <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center mb-4">
+              <Calendar className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Timetables</h3>
+            <p className="text-gray-600 dark:text-gray-400 text-sm">Create and manage timetables</p>
+          </div>
+
+          {/* Faculty Card */}
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow">
+            <div className="w-12 h-12 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center mb-4">
+              <Users className="w-6 h-6 text-green-600 dark:text-green-400" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Faculty</h3>
+            <p className="text-gray-600 dark:text-gray-400 text-sm">Manage lecturers and staff</p>
+          </div>
+
+          {/* Rooms Card */}
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow">
+            <div className="w-12 h-12 bg-purple-100 dark:bg-purple-900 rounded-lg flex items-center justify-center mb-4">
+              <Building2 className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Rooms</h3>
+            <p className="text-gray-600 dark:text-gray-400 text-sm">Manage rooms and capacities</p>
           </div>
         </div>
-
-        <div className="glass rounded-xl p-5">
-          <div className="flex items-baseline justify-between">
-            <h3 className="font-semibold">Room Utilization</h3>
-            <span className="text-xs text-muted-foreground">% of weekly slots used</span>
-          </div>
-          <div className="h-72 mt-4">
-            <ResponsiveContainer>
-              <BarChart data={(rooms.data ?? []).slice(0, 12)}>
-                <XAxis dataKey="code" tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" />
-                <YAxis tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" />
-                <Tooltip contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }} />
-                <Bar dataKey="utilization" radius={[6, 6, 0, 0]} fill="var(--chart-2)" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-
-      {isLoading && <div className="text-sm text-muted-foreground">Loading dashboard…</div>}
+      </main>
     </div>
   );
 }

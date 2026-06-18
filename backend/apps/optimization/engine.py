@@ -1,231 +1,264 @@
-"""
-UniTime CP-SAT timetabling engine (Google OR-Tools).
-
-Models the timetabling problem as a Constraint Satisfaction / Optimization Problem.
-
-For each session s in the input "sessions" list, decide:
-    day_s in {valid_days}
-    slot_s in {valid_slots}
-    room_s in {valid_rooms}
-
-Hard constraints:
-  - Lecturer cannot teach two sessions at the same (day, slot)
-  - Room cannot host two sessions at the same (day, slot)
-  - Student group cannot attend two sessions at the same (day, slot)
-  - Room capacity >= group size
-  - Room type / equipment compatibility (labs go to labs)
-  - Lecturer weekly hours <= max for rank
-
-Soft (objective):
-  - Minimize idle gaps in each student group's day
-  - Minimize number of distinct days each student group attends (cap by rules)
-  - Balance lecturer schedules
-"""
-from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Iterable
+import logging
+from dataclasses import dataclass
+from typing import List, Dict, Tuple, Optional
 from ortools.sat.python import cp_model
+from django.db.models import Q
 
+from apps.academics.models import Semester, Term, Course, StudentGroup, ProgrammeLevel
+from apps.staff.models import Lecturer, CourseAllocation
+from apps.facilities.models import Room
+from apps.scheduling.models import TimeSlot, Timetable, TimetableEntry, DayOfWeek
 
-@dataclass
-class SessionInput:
-    id: int
-    course_code: str
-    lecturer_id: int
-    lecturer_max_hours: int
-    group_ids: list[int]
-    group_size: int
-    duration_slots: int = 1  # 1 = single slot
-    is_lab: bool = False
-    required_equipment: list[str] = field(default_factory=list)
-    allowed_days: list[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
-
+logger = logging.getLogger(__name__)
 
 @dataclass
 class RoomInput:
     id: int
+    code: str
     capacity: int
-    room_type: str  # LECTURE / LAB / COMPUTER_LAB / SEMINAR / AUDITORIUM
-    equipment: list[str]
-
+    is_lab: bool
 
 @dataclass
-class SolveResult:
-    status: str
-    assignments: list[dict]   # [{session_id, day, slot, room_id}, ...]
-    objective: float | None
-    hard_violations: int
-    soft_violations: int
-    log: list[str]
-
+class SessionInput:
+    id: int
+    course_id: int
+    group_id: int
+    lecturer_id: int
+    hours_per_week: int
+    requires_lab: bool
+    programme_level: str
+    semester_number: int
 
 class TimetableSolver:
-    def __init__(
-        self,
-        sessions: list[SessionInput],
-        rooms: list[RoomInput],
-        slot_ids: list[int],          # ordered list of slot DB ids (lunch excluded)
-        days: list[int],              # e.g. [0..4] weekdays, [5] saturday for PG
-        max_days_per_group: dict[int, int] | None = None,  # group_id -> cap
-        time_limit_seconds: int = 30,
-    ):
-        self.sessions = sessions
-        self.rooms = rooms
-        self.slot_ids = slot_ids
-        self.days = days
-        self.max_days_per_group = max_days_per_group or {}
-        self.time_limit_seconds = time_limit_seconds
-        self.log: list[str] = []
+    """
+    OR-Tools CP-SAT Solver for University Timetabling.
+    Enforces constraints:
+    - Lecturer Weekly Load: 22h (11 slots), 16h (8 slots), 12h (6 slots)
+    - Lecturer Daily Load: Max 6h (3 slots)
+    - Student Days: Sem 1 = 4 days, Others = 3 days
+    - Masters/Postgrad: Saturday only
+    - Lunch Block: 1:00 PM - 2:00 PM blocked
+    - Soft: Minimize gaps between classes
+    """
 
-    # --------------------------------------------------------------- helpers
-    def _room_is_compatible(self, s: SessionInput, r: RoomInput) -> bool:
-        if r.capacity < s.group_size:
-            return False
-        if s.is_lab and r.room_type not in {"LAB", "COMPUTER_LAB"}:
-            return False
-        for eq in s.required_equipment:
-            if eq not in r.equipment:
-                return False
-        return True
-
-    # --------------------------------------------------------------- solve
-    def solve(self) -> SolveResult:
-        model = cp_model.CpModel()
-        n_days = len(self.days)
-        n_slots = len(self.slot_ids)
-        n_rooms = len(self.rooms)
-
+    def __init__(self, semester_id: int, term_id: Optional[int] = None):
+        self.semester_id = semester_id
+        self.term_id = term_id
+        self.model = cp_model.CpModel()
+        self.solver = cp_model.CpSolver()
+        
+        # Data containers
+        self.rooms: List[RoomInput] = []
+        self.sessions: List[SessionInput] = []
+        self.slots: List[TimeSlot] = []
+        self.lecturers: Dict[int, Lecturer] = {}
+        self.groups: Dict[int, StudentGroup] = {}
+        
         # Decision variables
-        day_v, slot_v, room_v = {}, {}, {}
-        # x[s, d, t, r] = 1 iff session s placed at day index d, slot index t, room index r
-        x = {}
+        self.x = {}
 
-        for s in self.sessions:
-            allowed_day_idx = [i for i, d in enumerate(self.days) if d in s.allowed_days] or list(range(n_days))
-            day_v[s.id] = model.NewIntVarFromDomain(
-                cp_model.Domain.FromValues(allowed_day_idx), f"day_{s.id}")
-            slot_v[s.id] = model.NewIntVar(0, n_slots - 1, f"slot_{s.id}")
-            compatible_rooms = [i for i, r in enumerate(self.rooms) if self._room_is_compatible(s, r)]
-            if not compatible_rooms:
-                self.log.append(f"No compatible room for session {s.id} ({s.course_code}) — relaxing capacity/type")
-                compatible_rooms = list(range(n_rooms))
-            room_v[s.id] = model.NewIntVarFromDomain(
-                cp_model.Domain.FromValues(compatible_rooms), f"room_{s.id}")
+    def load_data(self):
+        """Fetch all necessary data from Django ORM."""
+        logger.info("Loading data for semester %s...", self.semester_id)
+        
+        # 1. Load Rooms
+        for room in Room.objects.filter(is_active=True, is_physical=True):
+            self.rooms.append(RoomInput(
+                id=room.id,
+                code=room.code,
+                capacity=room.capacity,
+                is_lab=(room.room_type == 'lab')
+            ))
 
-            # Channel into x
-            for d_idx in allowed_day_idx:
-                for t in range(n_slots):
-                    for r_idx in compatible_rooms:
-                        var = model.NewBoolVar(f"x_{s.id}_{d_idx}_{t}_{r_idx}")
-                        x[(s.id, d_idx, t, r_idx)] = var
-            # Exactly one (d,t,r) is chosen
-            model.AddExactlyOne(
-                v for (sid, d, t, r), v in x.items() if sid == s.id
-            )
-            # Channel decision vars to x
-            for (sid, d, t, r), v in x.items():
-                if sid != s.id: continue
-                model.Add(day_v[s.id] == d).OnlyEnforceIf(v)
-                model.Add(slot_v[s.id] == t).OnlyEnforceIf(v)
-                model.Add(room_v[s.id] == r).OnlyEnforceIf(v)
+        # 2. Load Time Slots (Exclude Lunch)
+        self.slots = list(TimeSlot.objects.filter(is_lunch=False).order_by('order'))
 
-        # Hard: lecturer no clash
-        for d_idx in range(n_days):
-            for t in range(n_slots):
-                # room clash
-                for r_idx in range(n_rooms):
-                    vars_here = [v for (sid, d, tt, r), v in x.items()
-                                 if d == d_idx and tt == t and r == r_idx]
-                    if vars_here:
-                        model.Add(sum(vars_here) <= 1)
-                # lecturer clash
-                lecturers = {s.lecturer_id for s in self.sessions}
-                for lid in lecturers:
-                    vars_here = [
-                        v for (sid, d, tt, r), v in x.items()
-                        if d == d_idx and tt == t
-                        and next(s for s in self.sessions if s.id == sid).lecturer_id == lid
-                    ]
-                    if vars_here:
-                        model.Add(sum(vars_here) <= 1)
-                # group clash
-                all_groups = {g for s in self.sessions for g in s.group_ids}
-                for gid in all_groups:
-                    vars_here = [
-                        v for (sid, d, tt, r), v in x.items()
-                        if d == d_idx and tt == t
-                        and gid in next(s for s in self.sessions if s.id == sid).group_ids
-                    ]
-                    if vars_here:
-                        model.Add(sum(vars_here) <= 1)
+        # 3. Load Lecturers
+        for lec in Lecturer.objects.filter(is_active=True):
+            self.lecturers[lec.id] = lec
 
-        # Hard: lecturer weekly hours
-        lecturers = {s.lecturer_id: s.lecturer_max_hours for s in self.sessions}
-        for lid, max_hours in lecturers.items():
-            total = []
-            for s in self.sessions:
-                if s.lecturer_id != lid: continue
-                total.append(s.duration_slots * 2)  # each slot ~ 2 hours
-            if total and sum(total) > max_hours:
-                # not solvable; record violation but proceed
-                self.log.append(f"Lecturer {lid}: required hours {sum(total)} exceed cap {max_hours}")
+        # 4. Load Student Groups
+        semester = Semester.objects.get(id=self.semester_id)
+        for group in StudentGroup.objects.filter(semester=semester):
+            self.groups[group.id] = group
 
-        # Soft objective: minimize spread of group days
-        group_day_used = {}
-        all_groups = {g for s in self.sessions for g in s.group_ids}
-        for gid in all_groups:
-            for d_idx in range(n_days):
-                used = model.NewBoolVar(f"g{gid}_d{d_idx}_used")
-                group_day_used[(gid, d_idx)] = used
-                related = [
-                    v for (sid, d, t, r), v in x.items()
-                    if d == d_idx
-                    and gid in next(s for s in self.sessions if s.id == sid).group_ids
-                ]
-                if related:
-                    model.AddMaxEquality(used, related)
-                else:
-                    model.Add(used == 0)
+        # 5. Load Courses and Allocations (Sessions)
+        # Filter courses by term if it's an undergrad semester
+        courses_q = Course.objects.filter(semester=semester)
+        if self.term_id:
+            courses_q = courses_q.filter(term_id=self.term_id)
+        else:
+            # Masters/Postgrad: ignore term
+            courses_q = courses_q.filter(term__isnull=True)
 
-        # Apply max-days-per-group cap as hard constraint where provided
-        for gid, cap in self.max_days_per_group.items():
-            model.Add(sum(group_day_used[(gid, d)] for d in range(n_days)) <= cap)
+        allocations = CourseAllocation.objects.filter(
+            course__in=courses_q, 
+            academic_year=semester.academic_year
+        ).select_related('course', 'lecturer')
 
-        # Objective: minimize total (group_days_used + slot spread)
-        objective_terms = []
-        for (gid, d), v in group_day_used.items():
-            objective_terms.append(v)
-        if objective_terms:
-            model.Minimize(sum(objective_terms))
+        for alloc in allocations:
+            course = alloc.course
+            group = self.groups.get(alloc.course.programme.student_groups.filter(semester=semester).first().id) if alloc.course.programme.student_groups.filter(semester=semester).exists() else None
+            
+            if not group:
+                continue
 
-        solver = cp_model.CpSolver()
-        solver.parameters.max_time_in_seconds = self.time_limit_seconds
-        solver.parameters.num_search_workers = 8
-        status = solver.Solve(model)
+            self.sessions.append(SessionInput(
+                id=alloc.id,
+                course_id=course.id,
+                group_id=group.id,
+                lecturer_id=alloc.lecturer_id,
+                hours_per_week=course.hours_per_week,
+                requires_lab=course.requires_lab,
+                programme_level=course.programme.level,
+                semester_number=group.semester_number
+            ))
 
-        status_name = {
-            cp_model.OPTIMAL: "OPTIMAL",
-            cp_model.FEASIBLE: "FEASIBLE",
-            cp_model.INFEASIBLE: "INFEASIBLE",
-            cp_model.MODEL_INVALID: "MODEL_INVALID",
-            cp_model.UNKNOWN: "UNKNOWN",
-        }.get(status, str(status))
+    def build_model(self):
+        """Build the CP-SAT model with all constraints."""
+        logger.info("Building OR-Tools model...")
+        
+        # Create Boolean Variables
+        # x[(session_idx, room_id, day, slot_id)] = 1 if scheduled
+        for i, session in enumerate(self.sessions):
+            for room in self.rooms:
+                # Room Capacity Constraint
+                if room.capacity < self.groups[session.group_id].head_count:
+                    continue
+                # Room Type Constraint (Lab)
+                if session.requires_lab and not room.is_lab:
+                    continue
 
-        assignments = []
+                for day in range(7): # 0=Mon, 5=Sat, 6=Sun
+                    # MASTERS/POSTGRAD CONSTRAINT: Only Saturdays
+                    if session.programme_level in [ProgrammeLevel.MASTERS, ProgrammeLevel.POSTGRAD]:
+                        if day != DayOfWeek.SATURDAY:
+                            continue
+                    
+                    # UNDERGRAD CONSTRAINT: No Sundays
+                    if day == DayOfWeek.SUNDAY:
+                        continue
+
+                    for slot in self.slots:
+                        var_name = f"x_{i}_{room.id}_{day}_{slot.id}"
+                        self.x[(i, room.id, day, slot.id)] = self.model.NewBoolVar(var_name)
+
+        # --- HARD CONSTRAINTS ---
+
+        # 1. Each session must be scheduled exactly (hours_per_week / 2) times
+        # Assuming 1 slot = 2 hours.
+        session_indices = {}
+        for i, session in enumerate(self.sessions):
+            session_indices.setdefault(session.course_id, []).append(i)
+            required_slots = max(1, session.hours_per_week // 2)
+            vars_for_session = [self.x[(i, r.id, d, s.id)] for (idx, r_id, d, s_id) in self.x if idx == i]
+            self.model.Add(sum(vars_for_session) == required_slots)
+
+        # 2. No Room Clashes
+        for room in self.rooms:
+            for day in range(7):
+                for slot in self.slots:
+                    vars_list = [self.x[(idx, r_id, d, s_id)] for (idx, r_id, d, s_id) in self.x if r_id == room.id and d == day and s_id == slot.id]
+                    if vars_list:
+                        self.model.Add(sum(vars_list) <= 1)
+
+        # 3. No Lecturer Clashes
+        for lec_id in self.lecturers.keys():
+            for day in range(7):
+                for slot in self.slots:
+                    vars_list = [self.x[(idx, r_id, d, s_id)] for (idx, r_id, d, s_id) in self.x 
+                                 if self.sessions[idx].lecturer_id == lec_id and d == day and s_id == slot.id]
+                    if vars_list:
+                        self.model.Add(sum(vars_list) <= 1)
+
+        # 4. No Group Clashes
+        for grp_id in self.groups.keys():
+            for day in range(7):
+                for slot in self.slots:
+                    vars_list = [self.x[(idx, r_id, d, s_id)] for (idx, r_id, d, s_id) in self.x 
+                                 if self.sessions[idx].group_id == grp_id and d == day and s_id == slot.id]
+                    if vars_list:
+                        self.model.Add(sum(vars_list) <= 1)
+
+        # 5. Lecturer Weekly Load (22h=11, 16h=8, 12h=6)
+        for lec_id, lecturer in self.lecturers.items():
+            max_slots = lecturer.max_weekly_slots
+            vars_list = [self.x[(idx, r_id, d, s_id)] for (idx, r_id, d, s_id) in self.x 
+                         if self.sessions[idx].lecturer_id == lec_id]
+            if vars_list:
+                self.model.Add(sum(vars_list) <= max_slots)
+
+        # 6. Lecturer Daily Load (Max 6h = 3 slots)
+        for lec_id, lecturer in self.lecturers.items():
+            max_daily = lecturer.max_daily_slots
+            for day in range(7):
+                vars_list = [self.x[(idx, r_id, d, s_id)] for (idx, r_id, d, s_id) in self.x 
+                             if self.sessions[idx].lecturer_id == lec_id and d == day]
+                if vars_list:
+                    self.model.Add(sum(vars_list) <= max_daily)
+
+        # 7. Student Days Per Week (Sem 1 = 4 days, Others = 3 days)
+        for grp_id, group in self.groups.items():
+            max_days = group.max_days_per_week
+            day_used = {day: self.model.NewBoolVar(f'day_used_{grp_id}_{day}') for day in range(7)}
+            
+            for day in range(7):
+                vars_list = [self.x[(idx, r_id, d, s_id)] for (idx, r_id, d, s_id) in self.x 
+                             if self.sessions[idx].group_id == grp_id and d == day]
+                if vars_list:
+                    self.model.AddMaxEquality(day_used[day], vars_list)
+                    
+            self.model.Add(sum(day_used.values()) <= max_days)
+
+        # --- SOFT CONSTRAINTS (Minimize Gaps) ---
+        penalties = []
+        for grp_id in self.groups.keys():
+            for day in range(7):
+                for i in range(len(self.slots) - 2):
+                    s1, s2, s3 = self.slots[i], self.slots[i+1], self.slots[i+2]
+                    # Gap allowed during lunch, but we already filtered lunch slots out.
+                    # If s2 is missing in the list, it might be lunch, so we skip.
+                    
+                    vars_s1 = [self.x[(idx, r_id, d, s_id)] for (idx, r_id, d, s_id) in self.x if self.sessions[idx].group_id == grp_id and d == day and s_id == s1.id]
+                    vars_s3 = [self.x[(idx, r_id, d, s_id)] for (idx, r_id, d, s_id) in self.x if self.sessions[idx].group_id == grp_id and d == day and s_id == s3.id]
+                    vars_s2 = [self.x[(idx, r_id, d, s_id)] for (idx, r_id, d, s_id) in self.x if self.sessions[idx].group_id == grp_id and d == day and s_id == s2.id]
+
+                    if vars_s1 and vars_s3 and vars_s2:
+                        gap = self.model.NewBoolVar(f'gap_{grp_id}_{day}_{s1.id}')
+                        self.model.AddBoolAnd([vars_s1[0], vars_s3[0]]).OnlyEnforceIf(gap)
+                        penalties.append(gap * 10)
+
+        if penalties:
+            self.model.Minimize(sum(penalties))
+
+    def solve(self, timeout_seconds: int = 120) -> bool:
+        """Run the solver."""
+        logger.info("Starting solver...")
+        self.solver.parameters.max_time_in_seconds = timeout_seconds
+        
+        status = self.solver.Solve(self.model)
+        
         if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            for s in self.sessions:
-                d = self.days[solver.Value(day_v[s.id])]
-                t = self.slot_ids[solver.Value(slot_v[s.id])]
-                r = self.rooms[solver.Value(room_v[s.id])].id
-                assignments.append({
-                    "session_id": s.id, "day": d, "slot_id": t, "room_id": r,
-                })
+            logger.info("Solver found a solution!")
+            return True
+        else:
+            logger.error("Solver failed to find a solution. Status: %s", status)
+            return False
 
-        return SolveResult(
-            status=status_name,
-            assignments=assignments,
-            objective=solver.ObjectiveValue() if status in (cp_model.OPTIMAL, cp_model.FEASIBLE) else None,
-            hard_violations=0 if status in (cp_model.OPTIMAL, cp_model.FEASIBLE) else 1,
-            soft_violations=int(solver.ObjectiveValue() or 0) if status in (cp_model.OPTIMAL, cp_model.FEASIBLE) else 0,
-            log=self.log,
-        )
+    def save_results(self, timetable: Timetable):
+        """Save the solver's output to the database."""
+        logger.info("Saving results to database...")
+        TimetableEntry.objects.filter(timetable=timetable).delete()
+        
+        for (idx, room_id, day, slot_id), var in self.x.items():
+            if self.solver.Value(var) == 1:
+                session = self.sessions[idx]
+                TimetableEntry.objects.create(
+                    timetable=timetable,
+                    course_id=session.course_id,
+                    student_group_id=session.group_id,
+                    lecturer_id=session.lecturer_id,
+                    room_id=room_id,
+                    day=day,
+                    time_slot_id=slot_id
+                )

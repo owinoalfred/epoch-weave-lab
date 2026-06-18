@@ -121,9 +121,13 @@ SPECTACULAR_SETTINGS = {
 }
 
 CORS_ALLOWED_ORIGINS = [
-    o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(",") if o.strip()
+    "http://localhost:5173",
+    "http://localhost:8080",  # <-- Added your current frontend port
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:8080",
 ]
 CORS_ALLOW_CREDENTIALS = True
+
 
 CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL

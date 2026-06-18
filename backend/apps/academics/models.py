@@ -1,137 +1,117 @@
 from django.db import models
 
+class AcademicYear(models.Model):
+    name = models.CharField(max_length=20, unique=True) # e.g., "2026/2027"
+    is_active = models.BooleanField(default=True)
 
-class TimeStamped(models.Model):
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    def __str__(self):
+        return self.name
 
-    class Meta:
-        abstract = True
+class Faculty(models.Model):
+    """e.g., Faculty of Computing, Faculty of Engineering"""
+    name = models.CharField(max_length=200, unique=True)
 
+    def __str__(self):
+        return self.name
 
-class AcademicYear(TimeStamped):
-    name = models.CharField(max_length=32, unique=True)  # e.g. 2025/2026
-    start_date = models.DateField()
-    end_date = models.DateField()
-    is_active = models.BooleanField(default=False)
-
-    def __str__(self): return self.name
-
-
-class Faculty(TimeStamped):
-    name = models.CharField(max_length=160, unique=True)
-    code = models.CharField(max_length=16, unique=True)
-    dean = models.ForeignKey("accounts.User", null=True, blank=True,
-                             on_delete=models.SET_NULL, related_name="deans_of")
-
-    class Meta:
-        verbose_name_plural = "Faculties"
-        ordering = ["name"]
-
-    def __str__(self): return self.name
-
-
-class Department(TimeStamped):
+class Department(models.Model):
+    name = models.CharField(max_length=200, unique=True)
     faculty = models.ForeignKey(Faculty, on_delete=models.CASCADE, related_name="departments")
-    name = models.CharField(max_length=160)
-    code = models.CharField(max_length=16)
-    hod = models.ForeignKey("accounts.User", null=True, blank=True,
-                            on_delete=models.SET_NULL, related_name="hod_of")
+    hod = models.ForeignKey("staff.Lecturer", on_delete=models.SET_NULL, null=True, blank=True, related_name="hod_departments")
 
-    class Meta:
-        unique_together = [("faculty", "code")]
-        ordering = ["name"]
+    def __str__(self):
+        return self.name
 
-    def __str__(self): return f"{self.faculty.code}/{self.code} — {self.name}"
-
-
+# --- ADDED THIS BACK AS A STANDALONE CLASS ---
 class ProgrammeLevel(models.TextChoices):
-    UNDERGRADUATE = "UG", "Undergraduate"
-    MASTERS = "MS", "Masters"
-    PHD = "PHD", "PhD"
-    POSTGRAD = "PG", "Postgraduate"
+    UNDERGRAD = "UNDERGRAD", "Undergraduate"
+    MASTERS = "MASTERS", "Masters"
+    POSTGRAD = "POSTGRAD", "Postgraduate"
 
-
-class Programme(TimeStamped):
-    department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name="programmes")
+class Programme(models.Model):
+    """e.g., BSCAIT, MBA, MSCIT"""
+    code = models.CharField(max_length=20, unique=True)
     name = models.CharField(max_length=200)
-    code = models.CharField(max_length=24)
-    level = models.CharField(max_length=4, choices=ProgrammeLevel.choices)
-    duration_years = models.PositiveSmallIntegerField(default=3)
+    
+    # Use the standalone ProgrammeLevel class
+    level = models.CharField(max_length=20, choices=ProgrammeLevel.choices, default=ProgrammeLevel.UNDERGRAD)
+    
+    department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name="programmes")
+    total_semesters = models.PositiveSmallIntegerField(default=8)
 
     class Meta:
-        unique_together = [("department", "code")]
-        ordering = ["name"]
+        ordering = ["code"]
 
-    def __str__(self): return f"{self.code} — {self.name}"
+    def __str__(self):
+        return f"{self.code} - {self.name}"
 
-
-class Semester(TimeStamped):
-    """A semester instance within an academic year."""
+class Semester(models.Model):
     academic_year = models.ForeignKey(AcademicYear, on_delete=models.CASCADE, related_name="semesters")
-    name = models.CharField(max_length=64)  # Semester 1 / 2
-    number = models.PositiveSmallIntegerField()  # 1, 2
-    start_date = models.DateField()
-    end_date = models.DateField()
-    is_active = models.BooleanField(default=False)
+    number = models.PositiveSmallIntegerField() # 1, 2
+    name = models.CharField(max_length=50) # e.g., "Semester 1"
 
     class Meta:
         unique_together = [("academic_year", "number")]
-        ordering = ["academic_year", "number"]
+        ordering = ["number"]
 
-    def __str__(self): return f"{self.academic_year.name} {self.name}"
+    def __str__(self):
+        return f"{self.academic_year.name} - {self.name}"
 
-
-class Term(TimeStamped):
-    """Undergraduate terms within a semester (Term 1, Term 2)."""
+class Term(models.Model):
+    """Undergrad semesters are split into Term 1 and Term 2. Masters have no terms."""
     semester = models.ForeignKey(Semester, on_delete=models.CASCADE, related_name="terms")
-    number = models.PositiveSmallIntegerField()
-    start_date = models.DateField()
-    end_date = models.DateField()
+    number = models.PositiveSmallIntegerField() # 1 or 2
+    name = models.CharField(max_length=50)
 
     class Meta:
         unique_together = [("semester", "number")]
-        ordering = ["semester", "number"]
 
-    def __str__(self): return f"{self.semester} Term {self.number}"
+    def __str__(self):
+        return f"{self.semester} - {self.name}"
 
-
-class Course(TimeStamped):
-    """Course Unit."""
+class Course(models.Model):
+    """A specific course unit (e.g., Internet of Things)."""
+    code = models.CharField(max_length=20)
+    name = models.CharField(max_length=200)
     programme = models.ForeignKey(Programme, on_delete=models.CASCADE, related_name="courses")
-    code = models.CharField(max_length=24)
-    title = models.CharField(max_length=240)
-    credit_units = models.PositiveSmallIntegerField(default=3)
-    weekly_hours = models.PositiveSmallIntegerField(default=3,
-        help_text="Total contact hours per week (lecture + lab)")
-    has_lab = models.BooleanField(default=False)
-    requires_equipment = models.JSONField(default=list, blank=True,
-        help_text="List of required equipment codes (e.g. ['computers','projector']).")
-    year_of_study = models.PositiveSmallIntegerField(default=1)
-    semester_number = models.PositiveSmallIntegerField(default=1)
+    semester = models.ForeignKey(Semester, on_delete=models.CASCADE, related_name="courses")
+    term = models.ForeignKey(Term, on_delete=models.CASCADE, null=True, blank=True, related_name="courses")
+    hours_per_week = models.PositiveSmallIntegerField(default=2)
+    requires_lab = models.BooleanField(default=False)
 
     class Meta:
-        unique_together = [("programme", "code")]
-        ordering = ["code"]
-        indexes = [models.Index(fields=["code"]), models.Index(fields=["year_of_study"])]
+        unique_together = [("code", "programme", "semester", "term")]
 
-    def __str__(self): return f"{self.code} — {self.title}"
+    def __str__(self):
+        return f"{self.code} - {self.name}"
 
-
-class StudentGroup(TimeStamped):
-    """Cohort of students (e.g. BSc CS Year 2 Group A)."""
+class StudentGroup(models.Model):
+    """A specific cohort/batch (e.g., BSCAITS24DA)."""
+    code = models.CharField(max_length=50, unique=True)
     programme = models.ForeignKey(Programme, on_delete=models.CASCADE, related_name="student_groups")
-    name = models.CharField(max_length=120)
-    year_of_study = models.PositiveSmallIntegerField()
-    size = models.PositiveIntegerField(default=0)
+    semester = models.ForeignKey(Semester, on_delete=models.CASCADE, related_name="student_groups")
+    head_count = models.PositiveIntegerField(default=30)
+    semester_number = models.PositiveSmallIntegerField(default=1) # Used for day constraints
 
     class Meta:
-        unique_together = [("programme", "name", "year_of_study")]
-        ordering = ["programme", "year_of_study", "name"]
+        ordering = ["code"]
 
-    def __str__(self): return f"{self.programme.code} Y{self.year_of_study} {self.name}"
+    def __str__(self):
+        return self.code
 
+    @property
+    def max_days_per_week(self):
+        """Semester 1 gets 4 days, others get 3 days."""
+        return 4 if self.semester_number == 1 else 3
 
-class Holiday(TimeStamped):
-    date = models.DateField(unique=True)
-    name = models.CharField(max_length=160)
+class Holiday(models.Model):
+    """University holidays where no classes are held."""
+    name = models.CharField(max_length=200)
+    date = models.DateField()
+    description = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["date"]
+
+    def __str__(self):
+        return f"{self.name} ({self.date})"
