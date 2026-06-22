@@ -1,103 +1,62 @@
 import os
+import re
 import pandas as pd
-
-from django.conf import settings
 from django.db import transaction
-from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import filters, status, viewsets
-from rest_framework.decorators import action, api_view, parser_classes, permission_classes
+from django.conf import settings
+from rest_framework import status, viewsets, filters
+from rest_framework.decorators import action, api_view, parser_classes
 from rest_framework.parsers import MultiPartParser
-from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from django_filters.rest_framework import DjangoFilterBackend
 
-# Import models from other apps for auto-seeding
-from apps.facilities.models import Room
+from apps.academics.models import Programme, Semester, AcademicYear, StudentGroup, Course
 from apps.staff.models import Lecturer
-from apps.academics.models import Programme, StudentGroup, Course, AcademicYear, Semester
+from apps.facilities.models import Room
 
-from .importer import parse_draft_timetable
-from .models import RoomBooking, TimeSlot, Timetable, TimetableEntry, TimetableStatus
+from .models import TimeSlot, Timetable, TimetableEntry, RoomBooking, TimetableStatus
 from .serializers import (
-    RoomBookingSerializer,
-    TimeSlotSerializer,
-    TimetableEntrySerializer,
-    TimetableListSerializer,
-    TimetableSerializer,
+    TimeSlotSerializer, TimetableSerializer, TimetableEntrySerializer, 
+    RoomBookingSerializer, TimetableListSerializer
 )
-
+from .importer import parse_draft_timetable
 
 class TimeSlotViewSet(viewsets.ModelViewSet):
     queryset = TimeSlot.objects.all()
     serializer_class = TimeSlotSerializer
-    permission_classes = [IsAuthenticated]
-
 
 class TimetableViewSet(viewsets.ModelViewSet):
     queryset = Timetable.objects.select_related("semester").all()
     serializer_class = TimetableSerializer
-    permission_classes = [IsAuthenticated]
-    
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ["semester", "status"]
     search_fields = ["name"]
 
     def get_serializer_class(self):
-        if self.action == "list":
-            return TimetableListSerializer
+        if self.action == "list": return TimetableListSerializer
         return TimetableSerializer
-
-    @action(detail=True, methods=["post"])
-    def generate(self, request, pk=None):
-        tt = self.get_object()
-        tt.status = TimetableStatus.GENERATING
-        tt.generated_by = request.user
-        tt.save(update_fields=["status", "generated_by"])
-        return Response(TimetableSerializer(tt).data)
-
-    @action(detail=True, methods=["post"])
-    def publish(self, request, pk=None):
-        tt = self.get_object()
-        tt.status = TimetableStatus.PUBLISHED
-        tt.save(update_fields=["status"])
-        return Response(TimetableSerializer(tt).data)
-
 
 class TimetableEntryViewSet(viewsets.ModelViewSet):
     queryset = TimetableEntry.objects.select_related("course", "lecturer", "room", "time_slot").all()
     serializer_class = TimetableEntrySerializer
-    permission_classes = [IsAuthenticated]
-    
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["timetable", "day", "lecturer", "room", "course"]
-
 
 class RoomBookingViewSet(viewsets.ModelViewSet):
     queryset = RoomBooking.objects.all()
     serializer_class = RoomBookingSerializer
-    permission_classes = [IsAuthenticated]
-    
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["room", "date", "approved"]
-
 
 @api_view(["POST"])
 @parser_classes([MultiPartParser])
-@permission_classes([AllowAny])
 def upload_draft_timetable(request):
-    """
-    Uploads a draft timetable Excel file, parses it, detects clashes,
-    and returns a structured report.
-    """
+    """Uploads Excel, parses it, and returns clashes/warnings."""
     file_obj = request.FILES.get("file")
     if not file_obj:
         return Response({"error": "No file uploaded"}, status=status.HTTP_400_BAD_REQUEST)
 
     temp_path = os.path.join(settings.MEDIA_ROOT, "temp_draft.xlsx")
     os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
-    
     with open(temp_path, "wb+") as destination:
-        for chunk in file_obj.chunks():
-            destination.write(chunk)
+        for chunk in file_obj.chunks(): destination.write(chunk)
 
     try:
         result = parse_draft_timetable(temp_path)
@@ -105,106 +64,120 @@ def upload_draft_timetable(request):
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-
+        if os.path.exists(temp_path): os.remove(temp_path)
 
 @api_view(["POST"])
 @parser_classes([MultiPartParser])
-@permission_classes([AllowAny])
 def auto_seed_from_excel(request):
     """
-    Reads the uploaded Excel file and automatically populates the database 
-    with missing Rooms, Lecturers, Programmes, Student Groups, and Courses.
+    Reads the uploaded Excel file and auto-seeds the database with
+    Rooms, Lecturers, Programmes, Student Groups, and Courses.
     """
     file_obj = request.FILES.get("file")
     if not file_obj:
         return Response({"error": "No file uploaded"}, status=status.HTTP_400_BAD_REQUEST)
 
+    temp_path = os.path.join(settings.MEDIA_ROOT, "temp_seed.xlsx")
+    os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
+    with open(temp_path, "wb+") as destination:
+        for chunk in file_obj.chunks(): destination.write(chunk)
+
     try:
-        df = pd.read_excel(file_obj, sheet_name="Time Table")
+        df_tt = pd.read_excel(temp_path, sheet_name="Time Table")
+        df_tt.columns = [str(c).strip() for c in df_tt.columns]
+        
+        stats = {"rooms": 0, "lecturers": 0, "programmes": 0, "groups": 0, "courses": 0}
+        
+        # Default Academic Year and Semester
+        acad_year, _ = AcademicYear.objects.get_or_create(name="2026/2027", defaults={"is_active": True})
+        semester, _ = Semester.objects.get_or_create(academic_year=acad_year, number=1, defaults={"name": "Semester 1"})
+        
+        with transaction.atomic():
+            # 1. Seed Rooms (from Room Capacity sheet & Time Table)
+            try:
+                df_rooms = pd.read_excel(temp_path, sheet_name="Room Capacity", header=None)
+                for index, row in df_rooms.iterrows():
+                    col0 = str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else ""
+                    col1 = row.iloc[1] if pd.notna(row.iloc[1]) else 50
+                    if re.match(r'^([A-Z]?\d{3})$', col0):
+                        capacity = int(col1) if isinstance(col1, (int, float)) else 50
+                        _, created = Room.objects.get_or_create(code=col0, defaults={"capacity": capacity, "is_physical": True})
+                        if created: stats["rooms"] += 1
+            except Exception as e:
+                print(f"Error reading Room Capacity sheet: {e}")
+            
+            # Also seed rooms from Time Table sheet
+            unique_rooms = df_tt['ROOMCODE'].dropna().unique()
+            for room_code in unique_rooms:
+                room_code = str(room_code).strip()
+                if re.match(r'^([A-Z]?\d{3})$', room_code) or room_code.startswith("ONLINE"):
+                    _, created = Room.objects.get_or_create(code=room_code, defaults={"capacity": 50, "is_physical": not room_code.startswith("ONLINE")})
+                    if created: stats["rooms"] += 1
+
+            # 2. Seed Lecturers
+            unique_lecturers = df_tt['Faculty'].dropna().unique()
+            for lec_name in unique_lecturers:
+                lec_name = str(lec_name).strip()
+                if lec_name and lec_name.upper() not in ["X", "NAN", "UNKNOWN", ""]:
+                    _, created = Lecturer.objects.get_or_create(name=lec_name, defaults={"name": lec_name})
+                    if created: stats["lecturers"] += 1
+
+            # 3. Seed Programmes
+            unique_programmes = df_tt['Programm'].dropna().unique()
+            prog_map = {}
+            for prog_name in unique_programmes:
+                prog_name = str(prog_name).strip()
+                if prog_name and prog_name.upper() not in ["NAN", ""]:
+                    level = "UNDERGRAD"
+                    if "MSC" in prog_name.upper() or "PHD" in prog_name.upper(): level = "POSTGRAD"
+                    elif "MBA" in prog_name.upper(): level = "MASTERS"
+                    
+                    obj, created = Programme.objects.get_or_create(
+                        code=prog_name, defaults={"name": prog_name, "level": level, "total_semesters": 8}
+                    )
+                    prog_map[prog_name] = obj
+                    if created: stats["programmes"] += 1
+
+            # 4. Seed Student Groups (Batches)
+            unique_batches = df_tt['BATCHCODE'].dropna().unique()
+            batch_map = {}
+            for batch_code in unique_batches:
+                batch_code = str(batch_code).strip()
+                if batch_code and batch_code.upper() not in ["NAN", ""]:
+                    prog_obj = None
+                    # Try to match batch code to programme
+                    for p_name, p_obj in prog_map.items():
+                        if batch_code.startswith(p_name):
+                            prog_obj = p_obj
+                            break
+                    
+                    obj, created = StudentGroup.objects.get_or_create(
+                        code=batch_code, defaults={"programme": prog_obj, "semester": semester, "head_count": 30}
+                    )
+                    batch_map[batch_code] = obj
+                    if created: stats["groups"] += 1
+
+            # 5. Seed Courses
+            unique_courses = df_tt[['UNITCODE', 'UNITNAME']].dropna(subset=['UNITCODE']).drop_duplicates()
+            for index, row in unique_courses.iterrows():
+                unit_code = str(row['UNITCODE']).strip()
+                unit_name = str(row['UNITNAME']).strip() if pd.notna(row['UNITNAME']) else unit_code
+                
+                if unit_code and unit_code.upper() not in ["NAN", ""]:
+                    course_rows = df_tt[df_tt['UNITCODE'] == unit_code]
+                    prog_obj = None
+                    if not course_rows.empty:
+                        prog_name = str(course_rows.iloc[0]['Programm']).strip()
+                        prog_obj = prog_map.get(prog_name)
+                    
+                    _, created = Course.objects.get_or_create(
+                        code=unit_code, defaults={"name": unit_name, "programme": prog_obj, "semester": semester, "hours_per_week": 2}
+                    )
+                    if created: stats["courses"] += 1
+
+        return Response({"success": True, "message": "Database auto-seeded successfully!", "stats": stats}, status=status.HTTP_200_OK)
+
     except Exception as e:
-        return Response({"error": f"Failed to read Excel: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
-
-    # Ensure we have a default Academic Year and Semester
-    acad_year, _ = AcademicYear.objects.get_or_create(name="2026/2027", defaults={"is_active": True})
-    semester, _ = Semester.objects.get_or_create(academic_year=acad_year, number=1, defaults={"name": "Semester 1"})
-
-    stats = {"rooms": 0, "lecturers": 0, "programmes": 0, "groups": 0, "courses": 0}
-    
-    # Track what we've already created in this loop to avoid hitting the DB repeatedly
-    created_rooms = set()
-    created_lecturers = set()
-    created_programmes = set()
-    created_groups = set()
-    created_courses = set()
-
-    with transaction.atomic():
-        for index, row in df.iterrows():
-            # 1. Create Rooms
-            room_code = str(row.get("ROOMCODE")).strip() if pd.notna(row.get("ROOMCODE")) else None
-            capacity = int(row.get("CAPACITY")) if pd.notna(row.get("CAPACITY")) else 50
-            
-            if room_code and room_code.upper() not in ["NAN", "NONE", "", "ONLINE"]:
-                if room_code not in created_rooms:
-                    Room.objects.get_or_create(code=room_code, defaults={"capacity": capacity, "is_physical": True})
-                    created_rooms.add(room_code)
-                    stats["rooms"] += 1
-
-            # 2. Create Lecturers
-            faculty_name = str(row.get("Faculty")).strip() if pd.notna(row.get("Faculty")) else None
-            if faculty_name and faculty_name.upper() not in ["X", "TBA", "NAN", "NONE", ""]:
-                clean_name = faculty_name.title()
-                if clean_name not in created_lecturers:
-                    Lecturer.objects.get_or_create(name=clean_name, defaults={"name": clean_name})
-                    created_lecturers.add(clean_name)
-                    stats["lecturers"] += 1
-
-            # 3. Create Programmes
-            prog_code = str(row.get("Programm")).strip() if pd.notna(row.get("Programm")) else None
-            if prog_code and prog_code.upper() not in ["NAN", "NONE", ""]:
-                if prog_code not in created_programmes:
-                    Programme.objects.get_or_create(code=prog_code, defaults={"name": prog_code, "total_semesters": 8})
-                    created_programmes.add(prog_code)
-                    stats["programmes"] += 1
-
-            # 4. Create Student Groups
-            batch_code = str(row.get("BATCHCODE")).strip() if pd.notna(row.get("BATCHCODE")) else None
-            if batch_code and batch_code.upper() not in ["NAN", "NONE", ""]:
-                prog_obj = Programme.objects.filter(code=prog_code).first() if prog_code else None
-                if batch_code not in created_groups:
-                    StudentGroup.objects.get_or_create(
-                        code=batch_code, 
-                        defaults={
-                            "programme": prog_obj, 
-                            "semester": semester,
-                            "head_count": int(row.get("Head Count", 30)) if pd.notna(row.get("Head Count")) else 30
-                        }
-                    )
-                    created_groups.add(batch_code)
-                    stats["groups"] += 1
-
-            # 5. Create Courses
-            unit_code = str(row.get("UNITCODE")).strip() if pd.notna(row.get("UNITCODE")) else None
-            unit_name = str(row.get("UNITNAME")).strip() if pd.notna(row.get("UNITNAME")) else unit_code
-            
-            if unit_code and unit_code.upper() not in ["NAN", "NONE", ""]:
-                prog_obj = Programme.objects.filter(code=prog_code).first() if prog_code else None
-                if unit_code not in created_courses:
-                    Course.objects.get_or_create(
-                        code=unit_code, 
-                        defaults={
-                            "name": unit_name, 
-                            "programme": prog_obj,
-                            "semester": semester,
-                            "hours_per_week": int(row.get("Hours", 2)) if pd.notna(row.get("Hours")) else 2
-                        }
-                    )
-                    created_courses.add(unit_code)
-                    stats["courses"] += 1
-
-    return Response({
-        "success": True, 
-        "message": "Database auto-seeded successfully!",
-        "stats": stats
-    })
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    finally:
+        if os.path.exists(temp_path): os.remove(temp_path)
