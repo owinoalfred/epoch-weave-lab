@@ -5,17 +5,18 @@ from .views import (
     TimetableEntryViewSet, 
     TimeSlotViewSet, 
     RoomBookingViewSet,
-    upload_draft_timetable
+    upload_draft_timetable,
+    auto_seed_from_excel
 )
 
 router = DefaultRouter()
 router.register(r'timetables', TimetableViewSet)
-router.register(r'entries', TimetableEntryViewSet)
-router.register(r'slots', TimeSlotViewSet)
-router.register(r'bookings', RoomBookingViewSet)
+router.register(r'timetable-entries', TimetableEntryViewSet)
+router.register(r'time-slots', TimeSlotViewSet)
+router.register(r'room-bookings', RoomBookingViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),
-    # Map the Excel upload endpoint
     path('import/draft/', upload_draft_timetable, name='import-draft'),
+    path('auto-seed/', auto_seed_from_excel, name='auto-seed'),
 ]
