@@ -11,11 +11,11 @@ class DayOfWeek(models.IntegerChoices):
 
 class TimeSlot(models.Model):
     """Canonical teaching time slot."""
-    name = models.CharField(max_length=32) # e.g., "Slot 1"
+    name = models.CharField(max_length=32)
     start_time = models.TimeField()
     end_time = models.TimeField()
     order = models.PositiveSmallIntegerField(default=0)
-    is_lunch = models.BooleanField(default=False) # 1:00 PM - 2:00 PM
+    is_lunch = models.BooleanField(default=False) # 1:00 PM - 2:00 PM block
 
     class Meta:
         ordering = ["order"]
@@ -54,7 +54,6 @@ class TimetableEntry(models.Model):
     time_slot = models.ForeignKey(TimeSlot, on_delete=models.PROTECT)
 
     class Meta:
-        # Prevent double booking at the DB level
         constraints = [
             models.UniqueConstraint(fields=["room", "day", "time_slot"], name="unique_room_slot"),
             models.UniqueConstraint(fields=["lecturer", "day", "time_slot"], name="unique_lecturer_slot"),
@@ -64,7 +63,6 @@ class TimetableEntry(models.Model):
     def __str__(self):
         return f"{self.course.code} - {self.get_day_display()} {self.time_slot}"
 
-# --- ADDED THIS BACK ---
 class RoomBooking(models.Model):
     """Ad-hoc room booking outside the auto-generated timetable."""
     room = models.ForeignKey("facilities.Room", on_delete=models.CASCADE, related_name="bookings")
@@ -78,3 +76,6 @@ class RoomBooking(models.Model):
 
     class Meta:
         ordering = ["-date", "start_time"]
+
+    def __str__(self):
+        return f"{self.room.code} - {self.date} ({self.start_time} to {self.end_time})"
