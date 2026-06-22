@@ -1,15 +1,14 @@
 import os
-import re
 import pandas as pd
 from django.db import transaction
 from django.conf import settings
 from rest_framework import status, viewsets, filters
-from rest_framework.decorators import action, api_view, parser_classes
+from rest_framework.decorators import api_view, parser_classes, action
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 
-from apps.academics.models import Programme, Semester, AcademicYear, StudentGroup, Course
+from apps.academics.models import Programme, Semester, AcademicYear, StudentGroup, Course, Faculty, Department
 from apps.staff.models import Lecturer
 from apps.facilities.models import Room
 
@@ -32,8 +31,24 @@ class TimetableViewSet(viewsets.ModelViewSet):
     search_fields = ["name"]
 
     def get_serializer_class(self):
-        if self.action == "list": return TimetableListSerializer
+        if self.action == "list":
+            return TimetableListSerializer
         return TimetableSerializer
+
+    @action(detail=True, methods=["post"])
+    def generate(self, request, pk=None):
+        tt = self.get_object()
+        tt.status = TimetableStatus.GENERATING
+        tt.generated_by = request.user
+        tt.save(update_fields=["status", "generated_by"])
+        return Response(TimetableSerializer(tt).data)
+
+    @action(detail=True, methods=["post"])
+    def publish(self, request, pk=None):
+        tt = self.get_object()
+        tt.status = TimetableStatus.PUBLISHED
+        tt.save(update_fields=["status"])
+        return Response(TimetableSerializer(tt).data)
 
 class TimetableEntryViewSet(viewsets.ModelViewSet):
     queryset = TimetableEntry.objects.select_related("course", "lecturer", "room", "time_slot").all()
@@ -56,7 +71,8 @@ def upload_draft_timetable(request):
     temp_path = os.path.join(settings.MEDIA_ROOT, "temp_draft.xlsx")
     os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
     with open(temp_path, "wb+") as destination:
-        for chunk in file_obj.chunks(): destination.write(chunk)
+        for chunk in file_obj.chunks():
+            destination.write(chunk)
 
     try:
         result = parse_draft_timetable(temp_path)
@@ -64,7 +80,8 @@ def upload_draft_timetable(request):
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     finally:
-        if os.path.exists(temp_path): os.remove(temp_path)
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 @api_view(["POST"])
 @parser_classes([MultiPartParser])
@@ -80,7 +97,8 @@ def auto_seed_from_excel(request):
     temp_path = os.path.join(settings.MEDIA_ROOT, "temp_seed.xlsx")
     os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
     with open(temp_path, "wb+") as destination:
-        for chunk in file_obj.chunks(): destination.write(chunk)
+        for chunk in file_obj.chunks():
+            destination.write(chunk)
 
     try:
         df_tt = pd.read_excel(temp_path, sheet_name="Time Table")
@@ -88,33 +106,35 @@ def auto_seed_from_excel(request):
         
         stats = {"rooms": 0, "lecturers": 0, "programmes": 0, "groups": 0, "courses": 0}
         
-        # Default Academic Year and Semester
+        # 1. Setup default Academic Year and Semester
         acad_year, _ = AcademicYear.objects.get_or_create(name="2026/2027", defaults={"is_active": True})
         semester, _ = Semester.objects.get_or_create(academic_year=acad_year, number=1, defaults={"name": "Semester 1"})
         
+        # 2. Setup default Faculty and Department to satisfy NOT NULL constraints
+        faculty, _ = Faculty.objects.get_or_create(name="Default Faculty")
+        department, _ = Department.objects.get_or_create(name="Default Department", defaults={"faculty": faculty})
+        
+        # 3. Setup a fallback "DEFAULT" programme for unmatched courses/batches
+        default_prog, _ = Programme.objects.get_or_create(
+            code="DEFAULT", 
+            defaults={
+                "name": "Default Programme", 
+                "level": "UNDERGRAD", 
+                "total_semesters": 8, 
+                "department": department
+            }
+        )
+
         with transaction.atomic():
-            # 1. Seed Rooms (from Room Capacity sheet & Time Table)
-            try:
-                df_rooms = pd.read_excel(temp_path, sheet_name="Room Capacity", header=None)
-                for index, row in df_rooms.iterrows():
-                    col0 = str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else ""
-                    col1 = row.iloc[1] if pd.notna(row.iloc[1]) else 50
-                    if re.match(r'^([A-Z]?\d{3})$', col0):
-                        capacity = int(col1) if isinstance(col1, (int, float)) else 50
-                        _, created = Room.objects.get_or_create(code=col0, defaults={"capacity": capacity, "is_physical": True})
-                        if created: stats["rooms"] += 1
-            except Exception as e:
-                print(f"Error reading Room Capacity sheet: {e}")
-            
-            # Also seed rooms from Time Table sheet
+            # --- SEED ROOMS ---
             unique_rooms = df_tt['ROOMCODE'].dropna().unique()
             for room_code in unique_rooms:
                 room_code = str(room_code).strip()
-                if re.match(r'^([A-Z]?\d{3})$', room_code) or room_code.startswith("ONLINE"):
-                    _, created = Room.objects.get_or_create(code=room_code, defaults={"capacity": 50, "is_physical": not room_code.startswith("ONLINE")})
+                if room_code and room_code.upper() not in ["NAN", "NONE", ""]:
+                    _, created = Room.objects.get_or_create(code=room_code, defaults={"capacity": 50})
                     if created: stats["rooms"] += 1
 
-            # 2. Seed Lecturers
+            # --- SEED LECTURERS ---
             unique_lecturers = df_tt['Faculty'].dropna().unique()
             for lec_name in unique_lecturers:
                 lec_name = str(lec_name).strip()
@@ -122,7 +142,7 @@ def auto_seed_from_excel(request):
                     _, created = Lecturer.objects.get_or_create(name=lec_name, defaults={"name": lec_name})
                     if created: stats["lecturers"] += 1
 
-            # 3. Seed Programmes
+            # --- SEED PROGRAMMES ---
             unique_programmes = df_tt['Programm'].dropna().unique()
             prog_map = {}
             for prog_name in unique_programmes:
@@ -133,31 +153,42 @@ def auto_seed_from_excel(request):
                     elif "MBA" in prog_name.upper(): level = "MASTERS"
                     
                     obj, created = Programme.objects.get_or_create(
-                        code=prog_name, defaults={"name": prog_name, "level": level, "total_semesters": 8}
+                        code=prog_name, 
+                        defaults={
+                            "name": prog_name, 
+                            "level": level, 
+                            "total_semesters": 8,
+                            "department": department
+                        }
                     )
                     prog_map[prog_name] = obj
                     if created: stats["programmes"] += 1
 
-            # 4. Seed Student Groups (Batches)
+            # --- SEED STUDENT GROUPS (BATCHES) ---
             unique_batches = df_tt['BATCHCODE'].dropna().unique()
             batch_map = {}
             for batch_code in unique_batches:
                 batch_code = str(batch_code).strip()
                 if batch_code and batch_code.upper() not in ["NAN", ""]:
                     prog_obj = None
-                    # Try to match batch code to programme
+                    # Try to match batch code to a programme name
                     for p_name, p_obj in prog_map.items():
                         if batch_code.startswith(p_name):
                             prog_obj = p_obj
                             break
                     
+                    # Fallback to default programme if no match found
+                    if prog_obj is None:
+                        prog_obj = default_prog
+
                     obj, created = StudentGroup.objects.get_or_create(
-                        code=batch_code, defaults={"programme": prog_obj, "semester": semester, "head_count": 30}
+                        code=batch_code, 
+                        defaults={"programme": prog_obj, "semester": semester, "head_count": 30}
                     )
                     batch_map[batch_code] = obj
                     if created: stats["groups"] += 1
 
-            # 5. Seed Courses
+            # --- SEED COURSES ---
             unique_courses = df_tt[['UNITCODE', 'UNITNAME']].dropna(subset=['UNITCODE']).drop_duplicates()
             for index, row in unique_courses.iterrows():
                 unit_code = str(row['UNITCODE']).strip()
@@ -170,8 +201,13 @@ def auto_seed_from_excel(request):
                         prog_name = str(course_rows.iloc[0]['Programm']).strip()
                         prog_obj = prog_map.get(prog_name)
                     
+                    # Fallback to default programme if no match found
+                    if prog_obj is None:
+                        prog_obj = default_prog
+
                     _, created = Course.objects.get_or_create(
-                        code=unit_code, defaults={"name": unit_name, "programme": prog_obj, "semester": semester, "hours_per_week": 2}
+                        code=unit_code, 
+                        defaults={"name": unit_name, "programme": prog_obj, "semester": semester, "hours_per_week": 2}
                     )
                     if created: stats["courses"] += 1
 
@@ -180,4 +216,5 @@ def auto_seed_from_excel(request):
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     finally:
-        if os.path.exists(temp_path): os.remove(temp_path)
+        if os.path.exists(temp_path):
+            os.remove(temp_path)

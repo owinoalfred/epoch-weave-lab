@@ -6,7 +6,7 @@ from .views import (
     TimeSlotViewSet, 
     RoomBookingViewSet,
     upload_draft_timetable,
-    auto_seed_from_excel  # Make sure this is imported!
+    auto_seed_from_excel
 )
 
 router = DefaultRouter()
@@ -18,5 +18,5 @@ router.register(r'room-bookings', RoomBookingViewSet)
 urlpatterns = [
     path('', include(router.urls)),
     path('import/draft/', upload_draft_timetable, name='import-draft'),
-    path('auto-seed/', auto_seed_from_excel, name='auto-seed'),  # This line is critical!
+    path('auto-seed/', auto_seed_from_excel, name='auto-seed'),
 ]
