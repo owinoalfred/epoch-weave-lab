@@ -1,1 +1,25 @@
-curl.exe -X POST http://localhost:8000/api/auth/login/ -H "Content-Type: application/json" -d "{\"username\":\"alfred\", \"password\":\"Manoftheyear16\"}"
+curl.exe -X POST "http://localhost:8000/api/optimization/timetable/generate/" `
+-H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyMTM5MjAyLCJpYXQiOjE3ODIxMzU2MDIsImp0aSI6ImZhN2NkYjcwYTJjNzRhZGFhODA0OWQ1MWM1MjVlYzlkIiwidXNlcl9pZCI6MSwiZW1haWwiOiJvd2lub3dlYkBnbWFpbC5jb20iLCJuYW1lIjoiQWxmcmVkIE93aW5vIn0.O6tbyg1iqjU1Ylw5yroGjwhoxBmxAvuaRC_PxdSt_2o"
+-H "Content-Type: application/json" `
+-d "{\"semester_id\":1,\"academic_year_id\":1}"
+
+
+
+
+
+
+$headers = @{
+    Authorization = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgyMTM5MjAyLCJpYXQiOjE3ODIxMzU2MDIsImp0aSI6ImZhN2NkYjcwYTJjNzRhZGFhODA0OWQ1MWM1MjVlYzlkIiwidXNlcl9pZCI6MSwiZW1haWwiOiJvd2lub3dlYkBnbWFpbC5jb20iLCJuYW1lIjoiQWxmcmVkIE93aW5vIn0.O6tbyg1iqjU1Ylw5yroGjwhoxBmxAvuaRC_PxdSt_2o"
+}
+
+$body = @{
+    semester_id = 1
+    academic_year_id = 1
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+    -Uri "http://localhost:8000/api/optimization/timetable/generate/" `
+    -Method POST `
+    -Headers $headers `
+    -Body $body `
+    -ContentType "application/json"

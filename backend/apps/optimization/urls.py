@@ -1,7 +1,6 @@
 from django.urls import path
-from .views import GenerateTimetableView, JobStatusView
+from .views import trigger_solver
 
 urlpatterns = [
-    path("timetable/generate", GenerateTimetableView.as_view()),
-    path("jobs/<str:task_id>", JobStatusView.as_view()),
+    path("timetable/generate/", trigger_solver, name="generate-timetable"),
 ]
